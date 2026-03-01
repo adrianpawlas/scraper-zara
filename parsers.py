@@ -122,11 +122,29 @@ def parse_products_api(
 
                 name = comp.get("name") or "Unknown"
                 price_cents = comp.get("price")
-                price_str = format_price(price_cents) if price_cents is not None else None
-                # Zara API doesn't expose oldPrice in this view; sale can be added later if available
-                sale_str = None
-                if comp.get("extraInfo", {}).get("highlightPrice"):
-                    sale_str = price_str  # placeholder if we find sale logic elsewhere
+                detail = comp.get("detail", {})
+                # Special prices category: price = original, sale = discounted
+                is_special_prices = category_name and (
+                    category_name.strip().lower() in ("special prices", "special price")
+                )
+                original_cents = (
+                    comp.get("oldPrice")
+                    or comp.get("originalPrice")
+                    or detail.get("oldPrice")
+                    or detail.get("originalPrice")
+                )
+                if is_special_prices and price_cents is not None:
+                    if original_cents is not None:
+                        price_str = format_price(original_cents)
+                        sale_str = format_price(price_cents)
+                    else:
+                        price_str = format_price(price_cents)
+                        sale_str = format_price(price_cents)
+                else:
+                    price_str = format_price(price_cents) if price_cents is not None else None
+                    sale_str = None
+                    if comp.get("extraInfo", {}).get("highlightPrice"):
+                        sale_str = price_str
 
                 gender = gender_override or (comp.get("sectionName") or "").strip().lower()
                 if gender == "man":
@@ -137,7 +155,6 @@ def parse_products_api(
                     gender = "man"
 
                 product_url = build_zara_product_url(comp)
-                detail = comp.get("detail", {})
                 ref = detail.get("reference") or detail.get("displayReference") or ""
 
                 # Category: from URL mapping, or fallback to product family/subfamily (e.g. when using file path)
