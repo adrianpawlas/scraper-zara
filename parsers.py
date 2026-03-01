@@ -27,14 +27,23 @@ def extract_product_ids_from_grid(data: dict) -> set[int]:
     return product_ids
 
 
+def _image_priority(url: str) -> int:
+    """Prefer e1 (0), then e2 (1), then other (2) for main image. Match -e1 or -e2 in path."""
+    url_lower = url.lower()
+    if "-e1/" in url_lower or "-e1." in url_lower or "/-e1" in url_lower:
+        return 0
+    if "-e2/" in url_lower or "-e2." in url_lower or "/-e2" in url_lower:
+        return 1
+    return 2
+
+
 def get_image_urls_from_zara_component(comp: dict) -> tuple[str | None, list[str]]:
     """
     Extract main image URL and additional image URLs from a Zara commercialComponent.
-    Uses detail.colors[].xmedia[].extraInfo.deliveryUrl or .url (replace {width} with 1024).
+    Main image is preferred -e1, fallback -e2. Uses deliveryUrl or .url (replace {width} with 1024).
     Returns (main_image_url, [additional_urls]).
     """
-    main_url = None
-    additional_urls: list[str] = []
+    collected: list[str] = []
     seen: set[str] = set()
 
     detail = comp.get("detail", {})
@@ -50,13 +59,15 @@ def get_image_urls_from_zara_component(comp: dict) -> tuple[str | None, list[str
             if url in seen:
                 continue
             seen.add(url)
-            if main_url is None:
-                main_url = url
-            else:
-                additional_urls.append(url)
+            collected.append(url)
 
-    if not main_url and additional_urls:
-        main_url = additional_urls.pop(0)
+    if not collected:
+        return None, []
+
+    # Prefer e1 as main, then e2, then first available
+    collected.sort(key=lambda u: (_image_priority(u), u))
+    main_url = collected[0]
+    additional_urls = [u for u in collected[1:] if u != main_url]
     return main_url, additional_urls
 
 

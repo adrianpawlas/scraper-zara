@@ -203,7 +203,10 @@ def run_scraper(
         row = record_to_db_row(record, image_embedding, info_embedding)
 
         try:
-            supabase.table("products").upsert(row, on_conflict="id").execute()
+            # Unique constraint is on (source, product_url); upsert so we update existing row
+            supabase.table("products").upsert(
+                row, on_conflict="source, product_url"
+            ).execute()
             imported += 1
         except Exception as e:
             logger.error("Failed to upsert %s: %s", pid, e)
