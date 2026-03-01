@@ -45,7 +45,7 @@ def get_image_embedding(image_url: str) -> Optional[list[float]]:
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://www.massimodutti.com/",
+        "Referer": "https://www.zara.com/",
         "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
     }
     try:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Massimo Dutti scraper - paste API URLs in api_urls.txt and run this script."""
+"""Run the Zara scraper - paste category product API URLs in api_urls.txt and run this script."""
 import sys
 from pathlib import Path
 

@@ -1,4 +1,4 @@
-"""Main Massimo Dutti scraper - fetches APIs, extracts products, embeds, imports to Supabase."""
+"""Main Zara scraper - fetches category product APIs, extracts products, embeds, imports to Supabase."""
 import json
 import logging
 import sys
@@ -17,9 +17,11 @@ from config import (
     SOURCE,
     SUPABASE_ANON_KEY,
     SUPABASE_URL,
+    ZARA_CATEGORIES,
+    ZARA_CATEGORY_ID_RE,
 )
 from embeddings import get_image_embedding, get_text_embedding
-from parsers import detect_api_type, parse_products_api, extract_product_ids_from_grid
+from parsers import detect_api_type, parse_products_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +42,18 @@ def load_api_urls(file_path: Path) -> list[str]:
         if line and not line.startswith("#"):
             urls.append(line)
     return urls
+
+
+def get_category_and_gender_for_url(url: str) -> tuple[str | None, str | None]:
+    """Extract category ID from Zara category products URL and return (category_name, gender) from config."""
+    m = ZARA_CATEGORY_ID_RE.search(url)
+    if not m:
+        return None, None
+    cat_id = int(m.group(1))
+    if cat_id not in ZARA_CATEGORIES:
+        return None, None
+    name, gender = ZARA_CATEGORIES[cat_id]
+    return name, gender
 
 
 def fetch_json(url_or_path: str) -> Optional[dict]:
@@ -120,20 +134,27 @@ def record_to_db_row(record: dict, image_embedding: list[float] | None, info_emb
     return row
 
 
-def run_scraper(api_urls: Optional[list[str]] = None, skip_embeddings: bool = False) -> dict:
+def run_scraper(
+    api_urls: Optional[list[str]] = None,
+    skip_embeddings: bool = False,
+    limit: Optional[int] = None,
+) -> dict:
     """
-    Run the full scrape: fetch APIs, parse products, generate embeddings, import to Supabase.
+    Run the full scrape: fetch each category products API, parse products, generate embeddings, import to Supabase.
+    Category name and gender are derived from the URL (category ID) via config.ZARA_CATEGORIES.
     Returns stats dict with counts.
+    If limit is set, only that many products are processed (for testing).
     """
     urls = api_urls or load_api_urls(API_URLS_FILE)
     if not urls:
-        logger.warning("No API URLs found. Paste URLs in %s (one per line)", API_URLS_FILE)
+        logger.warning("No API URLs found. Paste Zara category product URLs in %s (one per line)", API_URLS_FILE)
         return {"products_parsed": 0, "products_imported": 0, "errors": 0}
 
     all_records: dict[str, dict] = {}  # id -> record (dedupe by id)
 
     for url in urls:
-        logger.info("Fetching %s", url[:90])
+        category_name, gender_override = get_category_and_gender_for_url(url)
+        logger.info("Fetching %s (category=%s, gender=%s)", url[:80], category_name or "?", gender_override or "?")
         data = fetch_json(url)
         if not data:
             continue
@@ -145,17 +166,19 @@ def run_scraper(api_urls: Optional[list[str]] = None, skip_embeddings: bool = Fa
             continue
 
         if api_type == "products":
-            records = parse_products_api(data)
+            records = parse_products_api(data, category_name=category_name, gender_override=gender_override)
             for r in records:
                 all_records[r["id"]] = r
             logger.info("Parsed %d products from products API", len(records))
-        elif api_type == "grid":
-            ids = extract_product_ids_from_grid(data)
-            logger.info("Found %d product IDs in grid API (need products API for full data)", len(ids))
 
     if not all_records:
-        logger.warning("No product records to import. Ensure at least one 'products' type API URL.")
+        logger.warning("No product records to import. Ensure at least one Zara category products URL in %s.", API_URLS_FILE)
         return {"products_parsed": 0, "products_imported": 0, "errors": 0}
+
+    if limit is not None and limit > 0:
+        items = list(all_records.items())[:limit]
+        all_records = dict(items)
+        logger.info("Limited to %d product(s) for this run", len(all_records))
 
     supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
     imported = 0
@@ -193,12 +216,13 @@ def run_scraper(api_urls: Optional[list[str]] = None, skip_embeddings: bool = Fa
 def main():
     """CLI entry point."""
     import argparse
-    parser = argparse.ArgumentParser(description="Massimo Dutti scraper")
-    parser.add_argument("--urls", nargs="*", help="API URLs (overrides api_urls.txt)")
+    parser = argparse.ArgumentParser(description="Zara scraper")
+    parser.add_argument("--urls", nargs="*", help="Category product API URLs (overrides api_urls.txt)")
     parser.add_argument("--skip-embeddings", action="store_true", help="Skip embedding generation (faster)")
+    parser.add_argument("--limit", type=int, default=None, help="Process only this many products (for testing)")
     args = parser.parse_args()
 
-    run_scraper(api_urls=args.urls, skip_embeddings=args.skip_embeddings)
+    run_scraper(api_urls=args.urls, skip_embeddings=args.skip_embeddings, limit=args.limit)
 
 
 if __name__ == "__main__":

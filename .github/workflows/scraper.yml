@@ -1,4 +1,4 @@
-name: Run Massimo Dutti Scraper
+name: Run Zara Scraper
 
 on:
   schedule:
@@ -36,7 +36,7 @@ jobs:
       - name: Run scraper
         run: |
           if [ ! -s api_urls.txt ]; then
-            echo "No API URLs. Add API_URLS secret or commit URLs in api_urls.txt"
+            echo "No API URLs. Add API_URLS secret or commit Zara category URLs in api_urls.txt"
             exit 1
           fi
           python run.py
