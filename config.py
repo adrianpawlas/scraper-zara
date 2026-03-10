@@ -14,7 +14,7 @@ SUPABASE_ANON_KEY = os.getenv(
 )
 
 # Product defaults
-SOURCE = "scraper"
+SOURCE = "scraper-zara"
 BRAND = "Zara"
 GENDER = "man"
 SECOND_HAND = False

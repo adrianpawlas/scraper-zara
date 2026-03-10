@@ -160,13 +160,37 @@ def parse_products_api(
                 # Category: from URL mapping, or fallback to product family/subfamily (e.g. when using file path)
                 category = category_name or comp.get("familyName") or comp.get("subfamilyName") or None
 
+                # Colors from availableColors (colorName, hexColor)
+                available_colors = comp.get("availableColors", [])
+                colors = [
+                    {"name": c.get("colorName"), "hex": c.get("hexColor")}
+                    for c in available_colors
+                    if c.get("colorName")
+                ] if available_colors else None
+                color_list = comp.get("colorList") or None
+
+                # Metadata: full product info for search/filtering
                 metadata = json.dumps(
                     {
+                        "id": f"zara_{product_id}",
                         "product_id": product_id,
+                        "product_url": product_url,
+                        "title": name,
+                        "description": comp.get("description"),
+                        "category": category,
+                        "gender": gender,
+                        "price": price_str,
+                        "sale": sale_str,
+                        "image_url": main_image,
+                        "additional_images": additional_images,
                         "reference": ref,
                         "seoProductId": comp.get("seo", {}).get("seoProductId"),
                         "familyName": comp.get("familyName"),
                         "subfamilyName": comp.get("subfamilyName"),
+                        "colors": colors,
+                        "colorList": color_list,
+                        "brand": "Zara",
+                        "sectionName": comp.get("sectionName"),
                     },
                     default=str,
                 )
