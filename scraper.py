@@ -36,6 +36,7 @@ EMBEDDING_DELAY = 0.5
 MAX_RETRIES = 3
 STALE_THRESHOLD_RUNS = 2
 FAILED_PRODUCTS_LOG = Path(__file__).parent / "failed_products.log"
+STALE_TRACKER_FILE = Path(__file__).parent / "stale_tracker.json"
 
 
 def load_api_urls(file_path: Path) -> list[str]:
@@ -107,17 +108,34 @@ def build_info_text(record: dict) -> str:
     return " ".join(str(p) for p in parts if p).strip()
 
 
+def load_stale_tracker() -> dict[str, int]:
+    """Load stale product tracker from local file."""
+    if STALE_TRACKER_FILE.exists():
+        try:
+            return json.loads(STALE_TRACKER_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Failed to load stale tracker: %s", e)
+    return {}
+
+
+def save_stale_tracker(tracker: dict[str, int]):
+    """Save stale product tracker to local file."""
+    try:
+        STALE_TRACKER_FILE.write_text(json.dumps(tracker, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.error("Failed to save stale tracker: %s", e)
+
+
 def fetch_existing_products(supabase) -> dict[str, dict]:
     """Fetch all existing products for this source from Supabase."""
     try:
         response = supabase.table("products").select(
-            "id, product_url, image_url, title, description, category, gender, price, sale, metadata, additional_images, updated_at, consecutive_misses"
+            "id, product_url, image_url, title, description, category, gender, price, sale, metadata, additional_images, updated_at, image_embedding, info_embedding"
         ).eq("source", SOURCE).execute()
         
         existing = {}
         for row in response.data:
             key = row["product_url"]
-            row["consecutive_misses"] = row.get("consecutive_misses", 0) or 0
             existing[key] = row
         logger.info("Fetched %d existing products from database", len(existing))
         return existing
@@ -186,43 +204,32 @@ def insert_batch_with_retry(supabase, batch: list[dict]) -> tuple[int, list[dict
     return len(batch) - len(failed_products), failed_products
 
 
-def delete_stale_products(supabase, product_urls_to_keep: set[str], existing_products: dict[str, dict]) -> int:
-    """Delete products that have been stale for 2 consecutive runs."""
+def update_stale_tracker_and_delete(
+    supabase, 
+    product_urls_seen: set[str], 
+    existing_products: dict[str, dict],
+    stale_tracker: dict[str, int]
+) -> tuple[int, dict[str, int]]:
+    """Update stale tracker and delete products that have been missed for 2+ consecutive runs."""
     deleted = 0
+    updated_tracker = {}
     
-    for product_url, existing in existing_products.items():
-        if product_url not in product_urls_to_keep:
-            current_misses = existing.get("consecutive_misses", 0) or 0
-            new_misses = current_misses + 1
+    for product_url in existing_products:
+        if product_url in product_urls_seen:
+            updated_tracker[product_url] = 0
+        else:
+            current_misses = stale_tracker.get(product_url, 0) + 1
+            updated_tracker[product_url] = current_misses
             
-            if new_misses >= STALE_THRESHOLD_RUNS:
+            if current_misses >= STALE_THRESHOLD_RUNS:
                 try:
-                    supabase.table("products").delete().eq("id", existing["id"]).execute()
+                    supabase.table("products").delete().eq("id", existing_products[product_url]["id"]).execute()
                     logger.info("Deleted stale product: %s", product_url[:60])
                     deleted += 1
                 except Exception as e:
                     logger.error("Failed to delete stale product %s: %s", product_url[:60], e)
-            else:
-                try:
-                    supabase.table("products").update({
-                        "consecutive_misses": new_misses
-                    }).eq("id", existing["id"]).execute()
-                except Exception as e:
-                    logger.error("Failed to update consecutive_misses for %s: %s", product_url[:60], e)
     
-    return deleted
-
-
-def reset_consecutive_misses(supabase, product_urls_seen: set[str], existing_products: dict[str, dict]):
-    """Reset consecutive_misses for products that were seen in this run."""
-    for product_url in product_urls_seen:
-        if product_url in existing_products:
-            try:
-                supabase.table("products").update({
-                    "consecutive_misses": 0
-                }).eq("id", existing_products[product_url]["id"]).execute()
-            except Exception as e:
-                logger.error("Failed to reset consecutive_misses for %s: %s", product_url[:60], e)
+    return deleted, updated_tracker
 
 
 def process_product(record: dict, existing_product: dict | None, generate_embeddings: bool, embedding_delay: float) -> dict | None:
@@ -281,7 +288,6 @@ def record_to_db_row(record: dict, image_embedding: list[float] | None, info_emb
         "compressed_image_url": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "consecutive_misses": 0,
     }
 
     if include_embeddings:
@@ -309,7 +315,7 @@ def run_scraper(
         logger.warning("No API URLs found. Paste Zara category product URLs in %s (one per line)", API_URLS_FILE)
         return {"products_parsed": 0, "products_imported": 0, "products_updated": 0, "products_skipped": 0, "products_deleted": 0, "errors": 0}
 
-    all_records: dict[str, dict] = {}  # product_url -> record (dedupe by product_url)
+    all_records: dict[str, dict] = {}
 
     for url in urls:
         category_name, gender_override = get_category_and_gender_for_url(url)
@@ -342,9 +348,9 @@ def run_scraper(
     supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
     
     existing_products = fetch_existing_products(supabase)
+    stale_tracker = load_stale_tracker()
     
     product_urls_seen = set(all_records.keys())
-    existing_product_urls = set(existing_products.keys())
     
     new_products_added = 0
     products_updated = 0
@@ -387,9 +393,10 @@ def run_scraper(
         total_errors += len(batch_failed)
         failed_products.extend(batch_failed)
     
-    reset_consecutive_misses(supabase, product_urls_seen, existing_products)
-    
-    products_deleted = delete_stale_products(supabase, product_urls_seen, existing_products)
+    products_deleted, updated_tracker = update_stale_tracker_and_delete(
+        supabase, product_urls_seen, existing_products, stale_tracker
+    )
+    save_stale_tracker(updated_tracker)
     
     if failed_products:
         log_failed_products(failed_products)
