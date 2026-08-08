@@ -260,11 +260,16 @@ def process_product(record: dict, existing_product: dict | None, generate_embedd
         image_embedding = existing_product.get("image_embedding")
         info_embedding = existing_product.get("info_embedding")
     
-    return record_to_db_row(record, image_embedding, info_embedding, needs_embedding or existing_product is None)
+    existing_created_at = existing_product.get("created_at") if existing_product is not None else None
+    return record_to_db_row(record, image_embedding, info_embedding, needs_embedding or existing_product is None, existing_created_at)
 
 
-def record_to_db_row(record: dict, image_embedding: list[float] | None, info_embedding: list[float] | None, include_embeddings: bool) -> dict:
-    """Convert parsed record to Supabase products table row."""
+def record_to_db_row(record: dict, image_embedding: list[float] | None, info_embedding: list[float] | None, include_embeddings: bool, created_at: str | None = None) -> dict:
+    """Convert parsed record to Supabase products table row.
+
+    created_at is preserved from the existing row when present so updates
+    don't bump the original creation time (the table has no updated_at column).
+    """
     row = {
         "id": record["id"],
         "source": SOURCE,
@@ -286,7 +291,7 @@ def record_to_db_row(record: dict, image_embedding: list[float] | None, info_emb
         "additional_images": record.get("additional_images"),
         "affiliate_url": None,
         "compressed_image_url": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
     }
 
     if include_embeddings:
