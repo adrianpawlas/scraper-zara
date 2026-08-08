@@ -9,6 +9,8 @@ Scrapes product data from Zara category product API URLs, generates image and te
 
 ## Setup
 
+> **Requirements**: Python 3.10+ (the code uses `str | None` / `dict[str, int]` type hints). The CI workflow uses Python 3.11.
+
 1. **Install dependencies**
    ```bash
    pip install -r requirements.txt
