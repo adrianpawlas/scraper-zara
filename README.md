@@ -51,7 +51,7 @@ GitHub Actions runs the scraper daily at midnight UTC. Setup:
 ## Output
 
 Products are upserted to the `products` table with:
-- `source`: "scraper"
+- `source`: "scraper-zara"
 - `brand`: "Zara"
 - `gender`: "man" or "woman" (from category mapping)
 - `category`: e.g. "Jackets & Gilets", "T-shirts"

@@ -6,7 +6,13 @@ from typing import Optional
 import requests
 import torch
 from PIL import Image
-from transformers import SiglipImageProcessor, SiglipModel, SiglipTokenizer
+# SiglipImageProcessorPil avoids a torchvision dependency (transformers >= 4.41);
+# fall back to SiglipImageProcessor on older versions where only the PIL variant exists under that name.
+try:
+    from transformers import SiglipImageProcessorPil as SiglipImageProcessor
+except ImportError:
+    from transformers import SiglipImageProcessor
+from transformers import SiglipModel, SiglipTokenizer
 
 logger = logging.getLogger(__name__)
 

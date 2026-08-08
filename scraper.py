@@ -130,7 +130,7 @@ def fetch_existing_products(supabase) -> dict[str, dict]:
     """Fetch all existing products for this source from Supabase."""
     try:
         response = supabase.table("products").select(
-            "id, product_url, image_url, title, description, category, gender, price, sale, metadata, additional_images, updated_at, image_embedding, info_embedding"
+            "id, product_url, image_url, title, description, category, gender, price, sale, metadata, additional_images, created_at, image_embedding, info_embedding"
         ).eq("source", SOURCE).execute()
         
         existing = {}
@@ -287,7 +287,6 @@ def record_to_db_row(record: dict, image_embedding: list[float] | None, info_emb
         "affiliate_url": None,
         "compressed_image_url": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     if include_embeddings:
