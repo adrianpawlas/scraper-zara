@@ -2,8 +2,8 @@ name: Run Zara Scraper
 
 on:
   schedule:
-    # Run daily at midnight UTC
-    - cron: '0 0 * * *'
+    # Run 3x/week at 9:45AM UTC (Mon, Thu, Sat)
+    - cron: '45 9 * * 1,4,6'
   workflow_dispatch:
     # Allow manual trigger
 
